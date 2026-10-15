@@ -1,0 +1,322 @@
+{
+  "info": {
+    "name": "Validei API",
+    "description": "Endpoints del backend Validei. Ejecutar en orden: Login guarda el token y Crear solicitud guarda el id. Cada ejecución registra un usuario nuevo con correo único.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/api/v1" },
+    { "key": "email", "value": "" },
+    { "key": "password", "value": "Secreta#123" },
+    { "key": "token", "value": "" },
+    { "key": "requestId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+      "event": [{ "listen": "test", "script": { "exec": [
+        "pm.test('200 OK', () => pm.response.to.have.status(200));"
+      ] } }]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Registrar usuario (201)",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "pm.collectionVariables.set('email', `postman.${Date.now()}@validei.test`);"
+            ] } },
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "pm.test('No expone la contraseña', () => pm.expect(pm.response.json()).to.not.have.property('passwordHash'));"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Usuario Postman\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        },
+        {
+          "name": "Registrar correo duplicado (409)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+            "pm.test('Formato de error', () => pm.expect(pm.response.json().error).to.eql('CONFLICT'));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Otro\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        },
+        {
+          "name": "Registrar con datos inválidos (400)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+            "pm.test('Lista campos', () => pm.expect(pm.response.json().fields.length).to.be.above(0));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"email\": \"no-es-correo\",\n  \"password\": \"corta\"\n}" }
+          }
+        },
+        {
+          "name": "Login con contraseña incorrecta (401)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));",
+            "pm.test('Código', () => pm.expect(pm.response.json().error).to.eql('INVALID_CREDENTIALS'));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"Incorrecta#1\"\n}" }
+          }
+        },
+        {
+          "name": "Login (200, guarda token)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "const body = pm.response.json();",
+            "pm.test('Devuelve Bearer token', () => { pm.expect(body.tokenType).to.eql('Bearer'); pm.expect(body.accessToken.split('.').length).to.eql(3); });",
+            "pm.collectionVariables.set('token', body.accessToken);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Perfil sin token (401)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+          ] } }],
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/me" }
+        },
+        {
+          "name": "Perfil con token alterado (401)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}x" }],
+            "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "Perfil (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Es el usuario del token', () => pm.expect(pm.response.json().email).to.eql(pm.collectionVariables.get('email')));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/users/me"
+          }
+        },
+        {
+          "name": "Actualizar perfil (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Guarda los cambios', () => pm.expect(pm.response.json().gender).to.eql('MALE'));"
+          ] } }],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/users/me",
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+18092249304\",\n  \"gender\": \"MALE\",\n  \"location\": \"Santo Domingo, DN\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Donors",
+      "item": [
+        {
+          "name": "Consultar donante antes de registrarse (404)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/donors/me"
+          }
+        },
+        {
+          "name": "Registrar donante (201)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 Created', () => pm.response.to.have.status(201));",
+            "pm.test('Grupo sanguíneo', () => pm.expect(pm.response.json().bloodGroup).to.eql('B+'));"
+          ] } }],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/donors/me",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Usuario Postman\",\n  \"contactNumber\": \"+18092249304\",\n  \"bloodGroup\": \"B+\",\n  \"location\": \"Santo Domingo, RD\",\n  \"lastDonationDate\": \"2026-06-01\"\n}" }
+          }
+        },
+        {
+          "name": "Actualizar donante (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Grupo actualizado', () => pm.expect(pm.response.json().bloodGroup).to.eql('O-'));"
+          ] } }],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/donors/me",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Usuario Postman\",\n  \"contactNumber\": \"+18092249304\",\n  \"bloodGroup\": \"O-\",\n  \"location\": \"Santiago\",\n  \"lastDonationDate\": \"2026-07-01\"\n}" }
+          }
+        },
+        {
+          "name": "Consultar donante (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/donors/me"
+          }
+        },
+        {
+          "name": "Registrar donante inválido (400)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+          ] } }],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/donors/me",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"\",\n  \"contactNumber\": \"abc\",\n  \"bloodGroup\": \"A+\",\n  \"location\": \"\",\n  \"lastDonationDate\": \"2099-01-01\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blood requests",
+      "item": [
+        {
+          "name": "Crear solicitud (201, guarda id)",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "const d = new Date(Date.now() + 5 * 24 * 3600 * 1000);",
+              "pm.collectionVariables.set('needBefore', d.toISOString().slice(0, 10));"
+            ] } },
+            { "listen": "test", "script": { "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "pm.test('Cabecera Location', () => pm.response.to.have.header('Location'));",
+              "pm.collectionVariables.set('requestId', pm.response.json().id);"
+            ] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/blood-requests",
+            "body": { "mode": "raw", "raw": "{\n  \"bloodGroup\": \"AB+\",\n  \"bags\": 2,\n  \"contactNumber\": \"+18092249304\",\n  \"emergencyContact\": \"+18095550000\",\n  \"patientName\": \"Jorge Perez\",\n  \"caseDescription\": \"Cancer Patient\",\n  \"patientGender\": \"MALE\",\n  \"needBefore\": \"{{needBefore}}\",\n  \"others\": \"Need very urgent\"\n}" }
+          }
+        },
+        {
+          "name": "Listar solicitudes (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Paginado', () => pm.expect(pm.response.json()).to.have.property('totalElements'));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/blood-requests?page=0&size=10"
+          }
+        },
+        {
+          "name": "Filtrar por grupo AB+ (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Solo AB+', () => pm.response.json().content.forEach(r => pm.expect(r.bloodGroup).to.eql('AB+')));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/blood-requests?bloodGroup=AB%2B&page=0&size=10"
+          }
+        },
+        {
+          "name": "Detalle de solicitud (200)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 OK', () => pm.response.to.have.status(200));",
+            "pm.test('Mismo id', () => pm.expect(String(pm.response.json().id)).to.eql(String(pm.collectionVariables.get('requestId'))));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/blood-requests/{{requestId}}"
+          }
+        },
+        {
+          "name": "Detalle inexistente (404)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/blood-requests/999999999"
+          }
+        },
+        {
+          "name": "Crear solicitud inválida (400)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/blood-requests",
+            "body": { "mode": "raw", "raw": "{\n  \"bags\": 0\n}" }
+          }
+        },
+        {
+          "name": "Listar sin token (401)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+          ] } }],
+          "request": { "method": "GET", "url": "{{baseUrl}}/blood-requests" }
+        }
+      ]
+    }
+  ]
+}
